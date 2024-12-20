@@ -1,6 +1,6 @@
 {
   "name": "@alexgyver/packet",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Binary packet encoder and decoder",
   "main": "./Packet.js",
   "module": "./Packet.js",
