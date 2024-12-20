@@ -1,0 +1,14 @@
+{
+  "name": "@alexgyver/packet",
+  "version": "1.0.0",
+  "description": "Binary packet encoder and decoder",
+  "main": "./Packet.js",
+  "module": "./Packet.js",
+  "types": "./Packet.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GyverLibs/Packet.js.git"
+  },
+  "author": "AlexGyver <alex@alexgyver.ru>",
+  "license": "MIT"
+}
