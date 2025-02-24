@@ -3,18 +3,22 @@ export default class Packet {
      * @param {Uint8Array} buffer 
      */
     constructor(buffer = null) {
-        this.buffer = buffer ? buffer : new Uint8Array(0);
+        if (buffer) {
+            this.buffer = (buffer instanceof Uint8Array) ? buffer : new Uint8Array(buffer);
+        } else {
+            this.buffer = new Uint8Array(0);
+        }
     }
 
     /**
      * Парсить пакет
-     * @param {String} markup "bN,f,'N',[N],[N]:bits,r" b-bytes, f-float, 'string', [array], r-raw this.buffer
-     * @returns {Array | null}
+     * @param {String | Array} markup "bN,iN,f,'N',[N],[N]:bits,r": b-bits,i-sign bits, f-float, 'string', [array], r-raw this.buffer
+     * @returns {Array | null | *} array or value if array.length == 1
      */
     parse(markup) {
         let out = [];
         let byte = 0;
-        markup = markup.split(',');
+        if (typeof markup == 'string') markup = markup.split(',');
 
         let next = (len) => {
             if (this.bit) this.bit = 0, byte++;
@@ -25,18 +29,20 @@ export default class Packet {
             for (let x of markup) {
                 let len = parseInt(x.slice(1));
                 switch (x[0]) {
-                    case 'b':
+                    case 'i':
+                    case 'b': {
                         if (len < 8) {
                             if (this.bit + len > 8 && !next(1)) return null;
-                            out.push((this.buffer[byte] >> this.bit) & ((1 << len) - 1));
+                            let v = (this.buffer[byte] >> this.bit) & ((1 << len) - 1);
+                            out.push(Packet.makeArray([v], 1, x[0] == 'i')[0]);
                             this.bit += len;
                         } else {
                             let blen = len / 8;
                             if (!next(blen)) return null;
-                            out.push(Packet.makeArray(this.buffer.slice(byte, byte + blen).buffer, blen)[0]);
+                            out.push(Packet.makeArray(this.buffer.slice(byte, byte + blen).buffer, blen, x[0] == 'i')[0]);
                             byte += blen;
                         }
-                        break;
+                    } break;
                     case 'f':
                         if (!next(4)) return null;
                         out.push(new Float32Array(this.buffer.slice(byte, byte + 4).buffer)[0]);
@@ -59,7 +65,9 @@ export default class Packet {
                         out.push(this.buffer.slice(byte, byte + len));
                         byte += len;
                         break;
-                    default: return null;
+                    default:
+                        out.push(null);
+                        break;
                 }
             }
             this.buffer = this.buffer.slice(byte, this.buffer.length);
@@ -67,7 +75,7 @@ export default class Packet {
             console.log(e);
             return null;
         }
-        return out;
+        return out.length == 1 ? out[0] : out;
     }
 
     /**
@@ -94,8 +102,12 @@ export default class Packet {
         }
     }
 
-    static makeArray(val, len) {
-        return (len == 4) ? new Uint32Array(val) : (len == 2 ? new Uint16Array(val) : new Uint8Array(val))
+    static makeArray(val, len, signed = false) {
+        switch (len) {
+            case 1: return signed ? new Int8Array(val) : new Uint8Array(val);
+            case 2: return signed ? new Int16Array(val) : new Uint16Array(val);
+            case 4: return signed ? new Int32Array(val) : new Uint32Array(val);
+        }
     }
 
     #concat(arr) {
