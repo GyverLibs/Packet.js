@@ -2,18 +2,60 @@
  
 > npm i @alexgyver/packet
 
-```js
-let p = new Packet();
-p.add(3, 2);
-p.add(7, 3);
-p.add(2, 2);
-p.add(3.14);
-p.add("123");
-p.add(123, 8);
-p.add(12345, 16);
-p.add(1233456, 32);
-p.add([1, 2, 3], 8);
-p.add([1, 2, 3], 16);
+`uN` - unsigned N бит
+`iN` - signed N бит
+`f` - float32
+`'N'` - строка длиной N
+`[N]` - массив u8 длиной N
+`[N]type` - массив type длиной N
+`bN` - массив uint8 длиной N байт
 
-console.log(Packet.parse(p.buffer, "b2,b3,b2,f,'3',b8,b16,b32,[3],[3]:16"));
+```js
+// manual pack
+let p = new Packet();
+
+p.pack(3, 'u2');
+p.pack(7, 'u3');
+p.pack(2, 'u2');
+p.pack(3.14);
+p.pack("123");
+p.pack([1, 2, 3], '[3]');
+p.pack([1, 2, 3], '[3]u16');
+p.pack([1.1, 2.2, 3.3], '[3]f');
+p.pack(-123, 'i8');
+p.pack(12345, 'u16');
+p.pack(1233456, 'u32');
+p.pack(new Uint8Array([1, 2, 3]));
+
+let out = new Packet(p);
+console.log(out.unpack("u2,u3,u2,f,'3',[3],[3]u16,[3]f,i8,u16,u32,b3"));
+
+let out = new Packet(p);
+console.log(out.unpack("u2,u3,u2,f,'3',[3],[3]u16,i8,u16,u32,b3"));
+```
+```js
+// schema pack
+const schema = Packet.schema({
+    val1: 'u2',
+    val2: 'u3',
+    val3: 'u2',
+    flt: 'f',
+    str: "'3'",
+    arr8: '[3]',
+    arr16: '[3]u16',
+    arrf: '[3]f',
+});
+
+const pp = schema.pack({
+    val1: 1,
+    val2: 2,
+    val3: 3,
+    flt: 4.4,
+    str: "kek",
+    arr8: [1, 2, 3],
+    arr16: [4, 5, 6],
+    arrf: [4.4, 5.5, 6.6],
+});
+
+console.log(schema.unpack(pp));
 ```

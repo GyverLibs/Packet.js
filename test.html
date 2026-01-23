@@ -3,28 +3,65 @@
 <body>
     <script type="module">
         import Packet from "./Packet.js"
+
+        // manual pack
         let p = new Packet();
-        p.add(3, 2);
-        p.add(7, 3);
-        p.add(2, 2);
-        p.add(3.14);
-        p.add("123");
-        p.add(123, 8);
-        p.add(12345, 16);
-        p.add(1233456, 32);
-        p.add([1, 2, 3], 8);
-        p.add([1, 2, 3], 16);
-        p.add(new Uint8Array([1, 2, 3]));
 
-        let out = new Packet(p.buffer);
-        console.log(out.parse("b2,b3,b2,f,'3',b8,b16,b32,[3],[3]:16,r3"));
+        p.pack(3, 'u2');
+        p.pack(7, 'u3');
+        p.pack(2, 'u2');
+        p.pack(3.14);
+        p.pack("123");
+        p.pack([1, 2, 3], '[3]');
+        p.pack([1, 2, 3], '[3]u16');
+        p.pack([1.1, 2.2, 3.3], '[3]f');
+        p.pack(-123, 'i8');
+        p.pack(12345, 'u16');
+        p.pack(1233456, 'u32');
+        p.pack(new Uint8Array([1, 2, 3]));
 
-        //console.log(out.parse("b2,b3"));
-        //console.log(out.parse("b2,f,'3'"));
-        //console.log(out.parse("b8,b16,b32,[3],[3]:16,r3"));
+        let out = new Packet(p);
+        console.log(out.unpack("u2,u3,u2,f,'3',[3],[3]u16,[3]f,i8,u16,u32,b3"));
+
+        // array unpack
+        /*
+        const [
+            cmd,
+            flags,
+            mode,
+            temp,
+            id,
+            name
+        ] = out.unpack(markup);
+        */
+
+        // schema pack
+        const schema = Packet.schema({
+            val1: 'u2',
+            val2: 'u3',
+            val3: 'u2',
+            flt: 'f',
+            str: "'3'",
+            arr8: '[3]',
+            arr16: '[3]u16',
+            arrf: '[3]f',
+        });
+
+        const pp = schema.pack({
+            val1: 1,
+            val2: 2,
+            val3: 3,
+            flt: 4.4,
+            str: "kek",
+            arr8: [1, 2, 3],
+            arr16: [4, 5, 6],
+            arrf: [4.4, 5.5, 6.6],
+        });
+
+        console.log(schema.unpack(pp));
 
         function test() {
-            let markup = "";
+            let markup = [];
             let res = [];
             let p = new Packet();
 
@@ -34,70 +71,80 @@
 
             for (let i = 0; i < 10; i++) {
                 switch (random(0, 6)) {
-                    case 0: {
+                    case 0: {   // u bits
                         let bits = random(1, 9);
                         let val = random(0, 1 << bits);
-                        p.add(val, bits);
+                        let type = 'u' + bits;
+                        p.pack(val, type);
                         res.push(val);
-                        markup += 'b' + bits + ',';
+                        markup.push(type);
                     } break;
-                    case 1: {
+
+                    case 1: {   // f
                         let f = new Float32Array([random(1, 100) / random(1, 100) + 0.001])[0];
-                        p.add(f);
+                        p.pack(f);
                         res.push(f);
-                        markup += 'f,';
+                        markup.push('f');
                     } break;
-                    case 2: {
+
+                    case 2: {   // u bytes
                         let bytes = 2 ** random(0, 3);
                         let val = random(1 << ((bytes - 1) * 8), 1 << (bytes * 8));
-                        p.add(val, bytes * 8);
+                        let type = 'u' + (bytes * 8);
+                        p.pack(val, type);
                         res.push(val);
-                        markup += 'b' + bytes * 8 + ',';
+                        markup.push(type);
                     } break;
-                    case 3: {
+
+                    case 3: {   // arr type
                         let bytes = 2 ** random(0, 3);
                         let len = random(1, 5);
                         let arr = [];
                         for (let i = 0; i < len; i++) {
                             arr.push(random(1 << ((bytes - 1) * 8), 1 << (bytes * 8)));
                         }
-                        p.add(arr, bytes * 8);
+                        let type = '[' + len + ']u' + (bytes * 8);
+                        p.pack(arr, type);
                         res.push(arr);
-                        markup += '[' + len + ']:' + bytes * 8 + ',';
+                        markup.push(type);
                     } break;
-                    case 4: {
+
+                    case 4: {   // arr
                         let len = random(1, 5);
                         let arr = [];
                         for (let i = 0; i < len; i++) {
                             arr.push(random(0, 256));
                         }
-                        p.add(arr, 8);
+                        p.pack(arr);
                         res.push(arr);
-                        markup += '[' + len + '],';
+                        markup.push('[' + len + ']');
                     } break;
-                    case 5: {
+
+                    case 5: {   // str
                         let len = random(3, 10);
                         let str = '';
                         for (let i = 0; i < len; i++) str += 'a';
-                        p.add(str);
+                        p.pack(str);
                         res.push(str);
-                        markup += '"' + len + '",';
+                        markup.push('"' + len + '"');
                     } break;
                 }
             }
-            markup = markup.slice(0, -1);
 
             let pout = new Packet(p.buffer);
-            let out = pout.parse(markup);
+            let out = pout.unpack(markup);
             let ok = JSON.stringify(res) == JSON.stringify(out);
             if (!ok) {
                 console.log("ERROR!");
                 console.log(markup);
-                console.log(JSON.stringify(res), JSON.stringify(out));
+                console.log(JSON.stringify(res));
+                console.log(JSON.stringify(out));
             }
         }
 
-        for (let i = 0; i < 30; i++) test();
+        const t0 = performance.now();
+        for (let i = 0; i < 300; i++) test();
+        console.log(performance.now() - t0);
         console.log("done!");
     </script>
 </body>
