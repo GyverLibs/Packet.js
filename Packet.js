@@ -178,6 +178,8 @@ export default class Packet {
             unpack(buffer) {
                 let p = new Packet(buffer);
                 let values = p.unpack(types);
+                if (!values) return null;
+
                 let out = {};
                 names.forEach((n, i) => out[n] = values[i]);
                 return out;

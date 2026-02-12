@@ -1,6 +1,8 @@
 # Packet.js
  
-> npm i @alexgyver/packet
+> **Browser**: https://gyverlibs.github.io/Packet.js/Packet.min.js
+
+> **Node**: npm i @alexgyver/packet
 
 `uN` - unsigned N бит
 `iN` - signed N бит
