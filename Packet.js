@@ -1,239 +1,189 @@
-export default class Packet {
-    /**
-     * @param {Uint8Array} buffer 
-     */
-    constructor(buffer = null) {
-        if (buffer instanceof Uint8Array) {
-            this.buffer = buffer;
-        } else if (buffer instanceof Packet) {
-            this.buffer = buffer.buffer;
-        } else if (buffer) {
-            this.buffer = new Uint8Array(buffer);
+//#region PWriter
+export class PWriter {
+    constructor(size = 64) {
+        this.buf = new Uint8Array(size);
+        this.len = 0;
+        this.bitBuf = 0;
+        this.bitLen = 0;
+    }
+
+    _grow(n) {
+        if (this.len + n <= this.buf.length) return;
+
+        let size = this.buf.length;
+        while (this.len + n > size) size *= 2;
+
+        const buf = new Uint8Array(size);
+        buf.set(this.buf);
+        this.buf = buf;
+    }
+
+    _byte(b) {
+        this._grow(1);
+        this.buf[this.len++] = b & 0xff;
+    }
+
+    endBits() {
+        if (this.bitLen) {
+            this._byte(this.bitBuf);
+            this.bitBuf = 0;
+            this.bitLen = 0;
+        }
+    }
+
+    writeInt(val, bits) {
+        if (this.bitLen + bits >= 32) this.endBits();
+
+        if (!this.bitLen && (bits == 8 || bits == 16 || bits == 32)) {
+            let bytes = bits / 8;
+            for (let i = 0; i < bytes; i++) {
+                this._byte(val >> (i * 8));
+            }
         } else {
-            this.buffer = new Uint8Array(0);
-        }
+            const mask = (1 << bits) - 1;
+            this.bitBuf |= (val & mask) << this.bitLen;
+            this.bitLen += bits;
 
-        this._updView();
-        this.bit = 0;
-    }
-
-    /**
-     * Парсить пакет
-     * @param {String | Array} markup "uN,iN,f,'N',[N],[N]type,bN"
-     * @returns {Array | null | *} array or value if array.length == 1
-     */
-    unpack(markup) {
-        if (typeof markup === 'string') markup = markup.split(',');
-
-        let out = [];
-        let byte = 0;
-        this.bit ||= 0;
-
-        let ensure = (len) => {
-            if (this.bit) this.bit = 0, byte++;
-            return byte + len <= this.buffer.length;
-        }
-
-        try {
-            for (let m of markup) {
-                let t = this._parseType(m);
-
-                switch (t.kind) {
-                    case 'u':
-                    case 'i':
-                        if (t.len < 8) {
-                            if (this.bit + t.len > 8 && !ensure(1)) return null;
-
-                            let mask = (1 << t.len) - 1;
-                            let v = (this.buffer[byte] >> this.bit) & mask;
-
-                            if (t.kind == 'i' && (v & (1 << (t.len - 1)))) {
-                                v |= ~mask; // sign extend
-                            }
-
-                            out.push(v);
-                            this.bit += t.len;
-                        } else {
-                            if (!ensure(t.bytes)) return null;
-                            out.push(this._getView(this.view, t.raw, byte));
-                            byte += t.bytes;
-                        }
-                        break;
-
-                    case 'f':
-                        if (!ensure(4)) return null;
-                        out.push(this._getView(this.view, t.raw, byte));
-                        byte += 4;
-                        break;
-
-                    case '\'':
-                    case '"':
-                        if (!ensure(t.len)) return null;
-                        out.push(new TextDecoder().decode(this.buffer.subarray(byte, byte + t.len)));
-                        byte += t.len;
-                        break;
-
-                    case '[': {
-                        if (!ensure(t.len * t.sub.bytes)) return null;
-
-                        let arr = [];
-                        for (let i = 0; i < t.len; i++) {
-                            arr.push(this._getView(this.view, t.sub.raw, byte + i * t.sub.bytes));
-                        }
-                        out.push(arr);
-                        byte += t.len * t.sub.bytes;
-                    } break;
-
-                    case 'b':
-                        if (!ensure(t.len)) return null;
-                        out.push(this.buffer.subarray(byte, byte + t.len));
-                        byte += t.len;
-                        break;
-
-                    default:
-                        out.push(null);
-                        break;
-                }
+            while (this.bitLen >= 8) {
+                this._byte(this.bitBuf);
+                this.bitBuf >>>= 8;
+                this.bitLen -= 8;
             }
-
-            this.buffer = this.buffer.subarray(byte);
-            this._updView();
-        } catch (e) {
-            console.error(e);
-            return null;
         }
-
-        return out.length == 1 ? out[0] : out;
     }
 
-    /**
-     * Добавить в пакет, выравнивание 1 байт
-     * @param {String, Array, Number, Uint8Array} value 
-     * @param {String} type тип
-     */
-    pack(value, type) {
-        let t = this._parseType(type);
+    writeFloat(val) {
+        this.endBits();
+        const f = new Float32Array([val]);
+        const u8 = new Uint8Array(f.buffer);
 
-        if (value instanceof Uint8Array) {
-            if (t.len) {
-                let buf = new Uint8Array(t.len);
-                buf.set(value.subarray(0, t.len));
-                value = buf;
+        this._grow(4);
+        this.buf.set(u8, this.len);
+        this.len += 4;
+    }
+
+    writeStr(str, size) {
+        const bytes = new TextEncoder().encode(str);
+        this.writeBin(bytes, size);
+    }
+
+    writeCStr(str, size) {
+        this.writeStr(str, size)
+        this._byte(0);
+    }
+
+    writeBin(bytes, size) {
+        this.endBits();
+        if (!size) size = bytes.length;
+        this._grow(size);
+        const wr = Math.min(bytes.length, size);
+        this.buf.set(bytes.subarray(0, wr), this.len);
+        this.buf.fill(0, this.len + wr, this.len + size);
+        this.len += size;
+    }
+
+    writeObj(obj, schema) {
+        for (const key in schema) {
+            this.write(obj[key], schema[key]);
+        }
+    }
+
+    write(value, type) {
+        let t = type[0];
+        let size = +type.slice(1);
+        switch (t) {
+            case 'i':
+            case 'u': this.writeInt(value, size); break;
+            case 'f': this.writeFloat(value); break;
+            case 's': this.writeStr(value, size); break;
+            case 'c': this.writeCStr(value, size); break;
+            case 'b': this.writeBin(value, size); break;
+        }
+    }
+
+    getBuffer() {
+        this.endBits();
+        return this.buf.subarray(0, this.len);
+    }
+}
+
+//#region PReader
+export class PReader {
+    constructor(buf) {
+        this.buf = buf;
+        this.offs = 0;
+        this.bitBuf = 0;
+        this.bitLen = 0;
+    }
+
+    endBits() {
+        this.bitBuf = 0;
+        this.bitLen = 0;
+    }
+
+    readInt(bits, signed) {
+        let v = 0;
+
+        if (this.bitLen + bits >= 32) this.endBits();
+
+        if (!this.bitLen && (bits == 8 || bits == 16 || bits == 32)) {
+            let bytes = bits / 8;
+            for (let i = 0; i < bytes; i++) {
+                v |= this.buf[this.offs++] << (8 * i);
             }
-            this._append(value);
-
-        } else if (typeof value === 'string') {
-            this.pack(new TextEncoder().encode(value), t.len ? ('b' + t.len) : null);
-
-        } else if (Array.isArray(value)) {
-            if (!type) t = this._parseType(`[${value.length}]`);
-            let buf = new Uint8Array(t.len * t.sub.bytes);
-            let view = new DataView(buf.buffer);
-
-            for (let i = 0; i < t.len; i++) {
-                let v = i < value.length ? value[i] : 0;
-                this._setView(view, t.sub.raw, i * t.sub.bytes, v);
+        } else {
+            while (this.bitLen < bits) {
+                this.bitBuf |= this.buf[this.offs++] << this.bitLen;
+                this.bitLen += 8;
             }
-
-            this._append(buf);
-
-        } else if (!Number.isInteger(value)) {
-            let buf = new Uint8Array(4);
-            let view = new DataView(buf.buffer);
-            this._setView(view, 'f', 0, value);
-            this._append(buf);
-
-        } else if (t.len >= 8) {  // int
-            let buf = new Uint8Array(t.bytes);
-            let view = new DataView(buf.buffer);
-            this._setView(view, type, 0, value);
-            this._append(buf);
-
-        } else {  // bit field
-            if (!this.bit || this.bit + t.len > 8) this._append(new Uint8Array(1));
-            let mask = (1 << t.len) - 1;
-            this.buffer[this.buffer.length - 1] |= (value & mask) << this.bit;
-            this.bit += t.len;
+            const mask = (1 << bits) - 1;
+            v = this.bitBuf & mask;
+            this.bitBuf >>>= bits;
+            this.bitLen -= bits;
         }
+
+        if (!signed) return v >>> 0;
+
+        const shift = 32 - bits;
+        return (v << shift) >> shift;
     }
 
-    /**
-     * Создать схему для авто упаковки/распаковки
-     * @param {Object} fields схема пакета вида имя: 'тип'
-     * @returns {Object} с методами pack()/unpack()
-     */
-    static schema(fields) {
-        let names = Object.keys(fields);
-        let types = Object.values(fields);
-
-        return {
-            pack(obj) {
-                let p = new Packet();
-                for (let i in names) {
-                    p.pack(obj[names[i]], types[i]);
-                }
-                return p.buffer;
-            },
-
-            unpack(buffer) {
-                let p = new Packet(buffer);
-                let values = p.unpack(types);
-                if (!values) return null;
-
-                let out = {};
-                names.forEach((n, i) => out[n] = values[i]);
-                return out;
-            },
-        };
+    readFloat() {
+        this.endBits()
+        const f = new Float32Array(1);
+        new Uint8Array(f.buffer).set(this.buf.subarray(this.offs, this.offs + 4));
+        this.offs += 4;
+        return f[0];
     }
 
-    _append(arr) {
-        let buf = new Uint8Array(this.buffer.length + arr.length);
-        buf.set(this.buffer, 0);
-        buf.set(arr, this.buffer.length);
-        this.buffer = buf;
-        this._updView();
-        this.bit = 0;
+    readStr(len) {
+        return new TextDecoder().decode(this.readBin(len)).split('\0')[0];
     }
-    _setView(view, type, n, v) {
-        switch (type) {
-            case 'i8': view.setInt8(n, v); break;
-            case 'u8': view.setUint8(n, v); break;
-            case 'i16': view.setInt16(n, v, true); break;
-            case 'u16': view.setUint16(n, v, true); break;
-            case 'i32': view.setInt32(n, v, true); break;
-            case 'u32': view.setUint32(n, v, true); break;
-            case 'f': view.setFloat32(n, v, true); break;
+
+    readBin(len) {
+        this.endBits()
+        let from = this.offs;
+        this.offs += len;
+        return this.buf.subarray(from, this.offs);
+    }
+
+    readObj(schema) {
+        let obj = {};
+        for (const key in schema) {
+            obj[key] = this.read(schema[key]);
         }
+        return obj;
     }
-    _getView(view, type, n) {
-        switch (type) {
-            case 'i8': return view.getInt8(n);
-            case 'u8': return view.getUint8(n);
-            case 'i16': return view.getInt16(n, true);
-            case 'u16': return view.getUint16(n, true);
-            case 'i32': return view.getInt32(n, true);
-            case 'u32': return view.getUint32(n, true);
-            case 'f': return view.getFloat32(n, true);
-        }
-        return null;
-    }
-    _updView() {
-        this.view = new DataView(
-            this.buffer.buffer,
-            this.buffer.byteOffset,
-            this.buffer.byteLength
-        );
-    }
-    _parseType(type) {
-        let kind = type ? type[0] : '';
-        let len = (kind == 'f') ? 32 : (type ? (parseInt(type.slice(1)) || 0) : 0);
-        return {
-            raw: type,
-            kind: kind,
-            len: len,
-            bytes: len >> 3,
-            sub: kind == '[' ? this._parseType(type.split(']')[1] || 'u8') : undefined,
+
+    read(type) {
+        let t = type[0];
+        let size = +type.slice(1);
+        switch (t) {
+            case 'i':
+            case 'u': return this.readInt(size, t == 'i');
+            case 'f': return this.readFloat();
+            case 's': return this.readStr(size);
+            case 'b': return this.readBin(size);
         }
     }
 }

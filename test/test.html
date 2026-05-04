@@ -1,12 +1,137 @@
 <!DOCTYPE html>
-<html lang="en">
-
-<head>
-  <meta charset="UTF-8">
-  <script src="./script.js" type="module"></script>
-</head>
 
 <body>
+    <script type="module">
+        import { PWriter, PReader } from "../Packet.js";
+
+        function randInt(min, max) {
+            return (Math.random() * (max - min + 1) + min) | 0;
+        }
+
+        function randStr(len = randInt(0, 20)) {
+            const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+            let s = "";
+            for (let i = 0; i < len; i++) {
+                s += chars[randInt(0, chars.length - 1)];
+            }
+            return s;
+        }
+
+        function randBytes(len = randInt(0, 20)) {
+            const b = new Uint8Array(len);
+            for (let i = 0; i < len; i++) b[i] = randInt(0, 255);
+            return b;
+        }
+
+        function deepEqual(a, b) {
+            if (a instanceof Uint8Array && b instanceof Uint8Array) {
+                if (a.length !== b.length) return false;
+
+                for (let i = 0; i < a.length; i++) {
+                    if (a[i] !== b[i]) return false;
+                }
+                return true;
+            }
+
+            if (typeof a === "number" && typeof b === "number") {
+                return Math.abs(a - b) < 1e-4;
+            }
+
+            return a === b;
+        }
+
+        function genSchema() {
+            const keys = ["a", "b", "c", "d", "e", "f", "g"];
+            const types = ["u8", "i8", "u16", "i16", "u32", "i32", "f32", "s8", "s16", "b8", "b16"];
+
+            const obj = {};
+            const schema = {};
+            const count = randInt(3, 7);
+
+            for (let i = 0; i < count; i++) {
+                const key = keys[i];
+
+                const type = types[randInt(0, types.length - 1)];
+                schema[key] = type;
+
+                const t = type[0];
+                const size = +type.slice(1);
+
+                if (t == 'u') obj[key] = randInt(0, (1 << size) - 1);
+                else if (t == 'i') obj[key] = randInt(-(1 << (size - 1)), (1 << (size - 1)) - 1);
+                else if (t === "f") obj[key] = Math.random() * 1000 - 500;
+                else if (t === "s") obj[key] = randStr(size);
+                else if (t === "b") obj[key] = randBytes(size);
+            }
+
+            return { schema, obj };
+        }
+
+        function runTest(iterations = 1000) {
+            for (let i = 0; i < iterations; i++) {
+                const { schema, obj } = genSchema();
+
+                const w = new PWriter();
+                w.writeObj(obj, schema);
+
+                const buf = w.getBuffer();
+
+                const r = new PReader(buf);
+                const out = r.readObj(schema);
+
+                for (const key in schema) {
+                    const expected = obj[key];
+                    const actual = out[key];
+
+                    if (!deepEqual(expected, actual)) {
+                        console.error("❌ FAIL");
+                        console.log("schema:", schema);
+                        console.log("obj:", obj);
+                        console.log("out:", out);
+                        console.log("key:", key);
+                        throw new Error("Mismatch");
+                    }
+                }
+            }
+
+            console.log("✅ ALL TESTS PASSED:", iterations);
+        }
+
+        function dumpBin(u8) {
+            u8.forEach((b, i) => {
+                console.log(i, b.toString(2).padStart(8, '0'));
+            });
+        }
+        function dumpHex(u8) {
+            let s = '';
+            u8.forEach(b => {
+                s += '0x' + b.toString(16).padStart(2, '0') + ',';
+            });
+            console.log(s);
+        }
+
+        runTest(100);
+
+        let w = new PWriter();
+        let sch = {
+            a: 'u8',
+            b: 'i3',
+            c: 'u5',
+            d: 'u16',
+            e: 'f',
+            f: 's8',
+        }
+        w.writeObj({
+            a: 123,
+            b: -1,
+            c: 12,
+            d: 12345,
+            e: 3.14,
+            f: 'hello',
+        }, sch);
+
+        dumpHex(w.getBuffer());
+    </script>
 </body>
 
 </html>
